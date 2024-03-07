@@ -82,16 +82,15 @@ def export_embedding_model(gpu_id, model_type, sam_checkpoint, opset):
     img_size = sam.image_encoder.img_size
     inputs = pre_processing(image, target_length, device, pixel_mean, pixel_std, img_size)
     os.makedirs("embedding_onnx", exist_ok=True)
-    onnx_model_path = os.path.join("../../weights/", "sam_" + model_type+"_"+"embedding.onnx")
+    onnx_model_path = os.path.join("weights/", "sam_" + model_type+"_"+"embedding.onnx")
     dummy_inputs = {"images": inputs}
 
     output_names = ["image_embeddings"]
-    # image_embeddings = sam.image_encoder(inputs).cpu().numpy()
-    # print('image_embeddings', image_embeddings.shape)
+   
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
-        # with open(onnx_model_path, "wb") as f:
+      
         torch.onnx.export(
             sam.image_encoder,
             tuple(dummy_inputs.values()),
@@ -111,11 +110,11 @@ def export_prompt_masks_model(model_type: str, checkpoint: str, opset: int):
 
     onnx_model = SamOnnxModel(
         model=sam,
-        return_single_mask=False,
+        return_single_mask=True,
         use_stability_score=False,
         return_extra_metrics=False,
     )
-    onnx_model_path = os.path.join("../../weights", "sam_" + model_type+"_"+"prompt_mask.onnx")
+    onnx_model_path = os.path.join("weights", "sam_" + model_type+"_"+"prompt_mask.onnx")
     
     dynamic_axes = {
         "point_coords": {1: "num_points"},
@@ -131,7 +130,6 @@ def export_prompt_masks_model(model_type: str, checkpoint: str, opset: int):
         "point_labels": torch.randint(low=0, high=4, size=(64, 1), dtype=torch.float),
         "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
         "has_mask_input": torch.tensor([1], dtype=torch.float),
-        # "orig_im_size": torch.tensor([1500, 2250], dtype=torch.int32),
     }
 
     _ = onnx_model(**dummy_inputs)
@@ -188,7 +186,7 @@ def export_prompt_model(gpu_id=1, model_type="default", sam_checkpoint="weights/
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
-        # with open(onnx_model_path, "wb") as f:
+       
         torch.onnx.export(
             sam.prompt_encoder,
             tuple(dummy_inputs.values()),
@@ -232,7 +230,7 @@ def export_masks_model(gpu_id=2, model_type="default", sam_checkpoint="weights/s
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
-        # with open(onnx_model_path, "wb") as f:
+      
         torch.onnx.export(
             sam.mask_decoder,
             tuple(dummy_inputs.values()),
@@ -282,7 +280,7 @@ def export_engine_prompt_encoder_and_mask_decoder(f='sam_onnx_example.onnx', hal
     import tensorrt as trt
     from pathlib import Path
     file = Path(f)
-    f = file.with_suffix('.engine')  # TensorRT engine file
+    f = file.with_suffix('.engine')
     onnx = file.with_suffix('.onnx')
     logger = trt.Logger(trt.Logger.INFO)
     builder = trt.Builder(logger)
@@ -306,11 +304,10 @@ def export_engine_prompt_encoder_and_mask_decoder(f='sam_onnx_example.onnx', hal
 
     profile = builder.create_optimization_profile()
     profile.set_shape('image_embeddings', (1, 256, 64, 64), (1, 256, 64, 64), (1, 256, 64, 64))
-    profile.set_shape('point_coords', (1, 2,2), (1, 5,2), (1,10,2))
-    profile.set_shape('point_labels', (1, 2), (1, 5), (1,10))
+    profile.set_shape('point_coords', (64, 1, 2), (64, 1, 2), (64, 1, 2))
+    profile.set_shape('point_labels', (64, 1), (64, 1), (64, 1))
     profile.set_shape('mask_input', (1, 1, 256, 256), (1, 1, 256, 256), (1, 1, 256, 256))
     profile.set_shape('has_mask_input', (1,), (1, ), (1, ))
-    # profile.set_shape_input('orig_im_size', (1200, 1800), (1200, 1800), (1200, 1800)) # Must be consistent with input
     config.add_optimization_profile(profile)
 
     print(f'building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine as {f}')
@@ -323,13 +320,13 @@ def export_engine_prompt_encoder_and_mask_decoder(f='sam_onnx_example.onnx', hal
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("transform pth model to onnx, or transform onnx to tensorrt")
     parser.add_argument("--img_pt2onnx", action="store_true", help="transform image embedding pth from sam model to onnx")
-    parser.add_argument("--sam_checkpoint", type=str, default="weights/sam_vit_h_4b8939.pth")
-    parser.add_argument("--model_type", type=str, default="default")
+    parser.add_argument("--sam_checkpoint", type=str, default="weights/sam_vit_l_0b3195.pth")
+    parser.add_argument("--model_type", type=str, default="vit_l")
     parser.add_argument("--prompt_masks_pt2onnx", action="store_true", help="whether export prompt encoder and masks decoder module")
     parser.add_argument("--img_onnx2trt", action="store_true", help="only transform image embedding onnx model to tensorrt engine")
-    parser.add_argument("--img_onnx_model_path", type=str, default="embedding_onnx/sam_default_embedding.onnx")
+    parser.add_argument("--img_onnx_model_path", type=str, default="weights/sam_vit_l_embedding.onnx")
     parser.add_argument("--sam_onnx2trt", action="store_true", help="only transform sam prompt and mask decoder onnx model to tensorrt engine")
-    parser.add_argument("--sam_onnx_path", type=str, default="./weights/sam_vit_h_4b8939.onnx")
+    parser.add_argument("--sam_onnx_path", type=str, default="./weights/sam_vit_l_prompt_mask.onnx")
     parser.add_argument("--gpu_id", type=int, default=0, help="use which gpu to transform model")
     parser.add_argument("--opset", type=int, default=17, help="onnx opset version")
     args = parser.parse_args()
@@ -343,7 +340,3 @@ if __name__ == '__main__':
             export_engine_image_encoder(args.img_onnx_model_path, False)
         if args.sam_onnx2trt:
             export_engine_prompt_encoder_and_mask_decoder(args.sam_onnx_path)
-           
-        # just test split prompt encoder and masks decoder module 
-        # export_prompt_model()
-        # export_masks_model()
