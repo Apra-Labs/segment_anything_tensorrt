@@ -158,3 +158,26 @@ python sam_onnx_inference.py
 python sam_trt_inference.py
 ```
 
+# Simplify model
+If you get an error when you got from onnx to trt in any of the above steps, you can simplify the onnx input model and try again. To simplify the model you need to use https://github.com/daquexian/onnx-simplifier.
+You can install it using 
+
+```shell
+pip3 install onnxsim
+```
+
+and then run 
+
+``` python
+import onnx
+from onnxsim import simplify
+
+# load your predefined ONNX model
+model = onnx.load(filename)
+
+# convert model
+model_simp, check = simplify(model)
+
+onnx.save(model_simp, output_file)
+assert check, "Simplified ONNX model could not be validated"
+```
